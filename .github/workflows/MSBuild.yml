@@ -1,9 +1,8 @@
-name: MSBuild MSVC Project File CI
+name: Build PortAudio Static Library x64
 
 on: [push, pull_request]
 
 env:
-  # Path to the solution file relative to the root of the project.
   SOLUTION_FILE_PATH: ./msvc/portaudio.sln
   VCPROJ_FILE_PATH: ./msvc/portaudio.vcproj
   VCXPROJ_FILE_PATH: ./msvc/portaudio.vcxproj
@@ -17,7 +16,7 @@ jobs:
     strategy:
       matrix:
         BUILD_CONFIGURATION: [Release]
-        BUILD_PLATFORM: [Win32, x64]
+        BUILD_PLATFORM: [x64]
 
     steps:
     - name: Add MSBuild to PATH
@@ -126,7 +125,7 @@ jobs:
         
         $xdoc.save($vcxprojFile)
 
-    - name: Build Static Library with Static Runtime
+    - name: Build Static Library
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: |
         msbuild /m `
@@ -134,23 +133,86 @@ jobs:
           /p:Platform=${{matrix.BUILD_PLATFORM}} `
           /p:ConfigurationType=StaticLibrary `
           /p:RuntimeLibrary=MultiThreaded `
-          /p:UseOfMfc=Static `
-          /p:UseOfAtl=Static `
           ${{env.VCXPROJ_FILE_PATH}}
 
-    - name: List Output Files
+    - name: Find Built Library
+      id: find_lib
       run: |
-        Write-Output "Build output directory contents:"
-        Get-ChildItem -Path . -Recurse -Filter "*.lib" | ForEach-Object { Write-Output $_.FullName }
-        Get-ChildItem -Path . -Recurse -Filter "*.dll" | ForEach-Object { Write-Output $_.FullName }
-        Get-ChildItem -Path . -Recurse -Filter "*.exe" | ForEach-Object { Write-Output $_.FullName }
-
-    - name: Verify Static Linking
-      run: |
-        Write-Output "Checking dependencies of built libraries:"
-        $libFiles = Get-ChildItem -Path . -Recurse -Filter "portaudio*.lib"
-        ForEach($libFile in $libFiles) {
-          Write-Output "Library: $($libFile.FullName)"
-          # Check if it's a static library by looking for certain characteristics
-          Write-Output "Size: $($libFile.Length) bytes"
+        $libPath = Get-ChildItem -Path . -Recurse -Filter "portaudio.lib" | Select-Object -First 1
+        if ($libPath) {
+          Write-Output "Found library at: $($libPath.FullName)"
+          Write-Output "LIB_PATH=$($libPath.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Output "LIB_DIR=$($libPath.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+        } else {
+          Write-Error "portaudio.lib not found!"
+          Get-ChildItem -Path . -Recurse -Filter "*.lib" | ForEach-Object { Write-Output "Found: $($_.FullName)" }
+          exit 1
         }
+
+    - name: Create Include Directory Structure
+      run: |
+        # Create dist directory structure
+        New-Item -ItemType Directory -Path "dist\include" -Force
+        # Copy all header files
+        Copy-Item -Path "include\*.h" -Destination "dist\include\" -Recurse -Force
+        Write-Output "Headers copied to dist/include"
+
+    - name: Copy Library to Dist
+      run: |
+        # Copy the built library to dist directory
+        New-Item -ItemType Directory -Path "dist\lib\x64" -Force
+        Copy-Item -Path "${{env:LIB_PATH}}" -Destination "dist\lib\x64\portaudio.lib" -Force
+        Write-Output "Library copied to dist/lib/x64/portaudio.lib"
+
+    - name: Create Readme
+      run: |
+        $readmeContent = @"
+PortAudio Static Library Build
+==============================
+
+Platform: x64
+Configuration: Release
+Runtime: Static VC++ Runtime
+
+Contents:
+- include/ - PortAudio header files
+- lib/x64/portaudio.lib - Static library for x64
+
+Build Info:
+- Built with: Visual Studio 2022
+- Runtime: Static linkage (no VC++ redistributable required)
+- Date: $(Get-Date -Format "yyyy-MM-dd")
+- Repository: ${{ github.repository }}
+
+Usage:
+1. Add 'dist/include' to your include path
+2. Link against 'dist/lib/x64/portaudio.lib'
+3. No external DLL dependencies required
+
+Features:
+- DirectSound support enabled
+- ASIO support disabled (requires ASIO SDK)
+- Static VC++ runtime linkage
+"@
+        Set-Content -Path "dist\README.txt" -Value $readmeContent
+
+    - name: Create Zip Package
+      run: |
+        $version = "x64-release-static"
+        $zipName = "portaudio-$version-$(Get-Date -Format 'yyyyMMdd').zip"
+        Compress-Archive -Path "dist\*" -DestinationPath "$zipName" -Force
+        Write-Output "ZIP_NAME=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+        Write-Output "Created package: $zipName"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: portaudio-static-x64
+        path: ${{env.ZIP_NAME}}
+        retention-days: 30
+
+    - name: Display Package Contents
+      run: |
+        Write-Output "Package contents:"
+        Get-ChildItem -Path "dist" -Recurse | ForEach-Object { Write-Output "  $($_.FullName)" }
+        Write-Output "Zip file: ${{env.ZIP_NAME}}"
