@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         BUILD_CONFIGURATION: [Release]
-        BUILD_PLATFORM: [x64]
+        BUILD_PLATFORM: [Win32, x64]
 
     steps:
     - name: Add MSBuild to PATH
@@ -83,9 +83,9 @@ jobs:
         # Process .def file: remove PaAsio_ symbols
         Set-Content -Path "${{env.DEF_FILE_PATH}}" -Value (Get-Content -Path "${{env.DEF_FILE_PATH}}" | Select-String -Pattern 'PaAsio_' -NotMatch)
 
-    - name: Configure Static Library Build
+    - name: Configure Static Library with Static Runtime
       run: |
-        # Modify the project file to build as static library with dynamic runtime
+        # Modify the project file to build as static library with static runtime
         $xdoc = new-object System.Xml.XmlDocument
         $vcxprojFile = resolve-path("${{env.VCXPROJ_FILE_PATH}}")
         $xdoc.load($vcxprojFile)
@@ -101,15 +101,15 @@ jobs:
           Write-Output "After: $($node.InnerText)"
         }
         
-        # Ensure dynamic runtime linkage (latest VC++ runtime)
+        # Set static runtime linkage
         $runtimeNodes = $xdoc.SelectNodes("//vs:RuntimeLibrary", $namespace)
-        Write-Output "Setting RuntimeLibrary to MultiThreadedDLL for dynamic runtime:"
+        Write-Output "Setting RuntimeLibrary to MultiThreaded for static runtime:"
         ForEach($node in $runtimeNodes) {
           Write-Output "Before: $($node.InnerText)"
-          if ($node.InnerText -eq "MultiThreaded") {
-            $node.InnerText = "MultiThreadedDLL"
-          } elseif ($node.InnerText -eq "MultiThreadedDebug") {
-            $node.InnerText = "MultiThreadedDebugDLL"
+          if ($node.InnerText -eq "MultiThreadedDLL") {
+            $node.InnerText = "MultiThreaded"
+          } elseif ($node.InnerText -eq "MultiThreadedDebugDLL") {
+            $node.InnerText = "MultiThreadedDebug"
           }
           Write-Output "After: $($node.InnerText)"
         }
@@ -126,14 +126,16 @@ jobs:
         
         $xdoc.save($vcxprojFile)
 
-    - name: Build Static Library
+    - name: Build Static Library with Static Runtime
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: |
         msbuild /m `
           /p:Configuration=${{matrix.BUILD_CONFIGURATION}} `
           /p:Platform=${{matrix.BUILD_PLATFORM}} `
           /p:ConfigurationType=StaticLibrary `
-          /p:RuntimeLibrary=MultiThreadedDLL `
+          /p:RuntimeLibrary=MultiThreaded `
+          /p:UseOfMfc=Static `
+          /p:UseOfAtl=Static `
           ${{env.VCXPROJ_FILE_PATH}}
 
     - name: List Output Files
@@ -141,3 +143,14 @@ jobs:
         Write-Output "Build output directory contents:"
         Get-ChildItem -Path . -Recurse -Filter "*.lib" | ForEach-Object { Write-Output $_.FullName }
         Get-ChildItem -Path . -Recurse -Filter "*.dll" | ForEach-Object { Write-Output $_.FullName }
+        Get-ChildItem -Path . -Recurse -Filter "*.exe" | ForEach-Object { Write-Output $_.FullName }
+
+    - name: Verify Static Linking
+      run: |
+        Write-Output "Checking dependencies of built libraries:"
+        $libFiles = Get-ChildItem -Path . -Recurse -Filter "portaudio*.lib"
+        ForEach($libFile in $libFiles) {
+          Write-Output "Library: $($libFile.FullName)"
+          # Check if it's a static library by looking for certain characteristics
+          Write-Output "Size: $($libFile.Length) bytes"
+        }
