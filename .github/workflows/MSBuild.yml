@@ -71,8 +71,8 @@ jobs:
 
     - name: Create ZIP of DLL and LIB
       run: |
-        $dllPath = "${{env.BUILD_OUTPUT_DIR}}\portaudio.dll"
-        $libPath = "${{env.BUILD_OUTPUT_DIR}}\portaudio.lib"
+        $dllPath = "x64\Release\portaudio.dll"
+        $libPath = "x64\Release\portaudio.lib"
         $zipPath = "${{github.workspace}}\portaudio-x64-release.zip"
         if (Test-Path $zipPath) { Remove-Item $zipPath }
         Compress-Archive -Path $dllPath,$libPath -DestinationPath $zipPath
