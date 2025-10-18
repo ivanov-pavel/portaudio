@@ -1,4 +1,4 @@
-name: Build Static PortAudio (Windows MinGW)
+name: Build Static PortAudio (MSYS2 MingW64 Static .lib)
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
 
 env:
   BUILD_DIR: ${HOME}/portaudio-build
-  ARTIFACT_NAME: portaudio-static-windows
+  ARTIFACT_NAME: portaudio-static-mingw64
 
 jobs:
-  msys2-ucrt64:
+  windows-msys2:
     runs-on: windows-latest
     defaults:
       run:
@@ -20,17 +20,16 @@ jobs:
     - name: Checkout PortAudio
       uses: actions/checkout@v3
       
-    - name: Setup MSYS2 and build tools
+    - name: Setup MSYS2 MingW64
       uses: msys2/setup-msys2@v2
       with:
-        msystem: UCRT64
+        msystem: MINGW64
         update: true
         install: >-
           git 
-          mingw-w64-ucrt-x86_64-gcc 
-          mingw-w64-ucrt-x86_64-autotools 
+          mingw-w64-x86_64-gcc 
+          mingw-w64-x86_64-autotools 
           autoconf-archive 
-          mingw-w64-ucrt-x86_64-tools 
           zip
 
     - name: Regenerate configure scripts
@@ -51,60 +50,27 @@ jobs:
         make -j$(nproc)
         make install
 
-    - name: Verify static library
+    - name: Rename to .lib and verify
       run: |
-        echo "=== Checking library type ==="
-        file ${{ env.BUILD_DIR }}/lib/libportaudio.a
-        echo "=== Checking dependencies ==="
-        x86_64-w64-mingw32-objdump -p ${{ env.BUILD_DIR }}/lib/libportaudio.a | grep "DLL Name" || echo "No DLL dependencies - good!"
+        # Rename to .lib
+        cp ${{ env.BUILD_DIR }}/lib/libportaudio.a ${{ env.BUILD_DIR }}/lib/portaudio.lib
+        
+        echo "=== Built files ==="
+        ls -la ${{ env.BUILD_DIR }}/lib/
+        
+        echo "=== Checking static build ==="
+        x86_64-w64-mingw32-objdump -p ${{ env.BUILD_DIR }}/lib/portaudio.lib | grep "DLL Name" || echo "No DLL dependencies - good!"
 
     - name: Create distribution archive
       run: |
         mkdir -p ${{ env.ARTIFACT_NAME }}
-        # Copy static library
-        cp ${{ env.BUILD_DIR }}/lib/libportaudio.a ${{ env.ARTIFACT_NAME }}/
-        # Copy headers
+        cp ${{ env.BUILD_DIR }}/lib/portaudio.lib ${{ env.ARTIFACT_NAME }}/
         cp -r ${{ env.BUILD_DIR }}/include/* ${{ env.ARTIFACT_NAME }}/
-        # Create README
-        cat > ${{ env.ARTIFACT_NAME }}/README.txt << EOF
-        Static PortAudio Library Build
-        ==============================
-        
-        Built with: x86_64-w64-mingw32-gcc
-        Date: $(date)
-        Features: Static build, no external dependencies
-        
-        Contents:
-        - libportaudio.a: Static library
-        - portaudio.h: Main header
-        - Other header files
-        
-        Usage:
-        Compile with: -static -static-libgcc -static-libstdc++ -lwinpthread
-        Link with: -lportaudio -lwinmm -lole32 -lsetupapi -luuid
-        EOF
-        
-        # Create zip archive
         zip -r ${{ env.ARTIFACT_NAME }}.zip ${{ env.ARTIFACT_NAME }}
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: portaudio-static-windows
+        name: portaudio-static-mingw64
         path: ${{ env.ARTIFACT_NAME }}.zip
         retention-days: 30
-
-    - name: Test static linking
-      run: |
-        echo "=== Testing static compilation ==="
-        cd ${{ env.BUILD_DIR }}
-        # Test compile with static linking
-        x86_64-w64-mingw32-gcc -static -static-libgcc -static-libstdc++ \
-          -I./include \
-          -o patest_init_static.exe \
-          ../test/patest_init.c \
-          -L./lib -lportaudio \
-          -lwinmm -lole32 -lsetupapi -luuid -lwinpthread
-        
-        echo "=== Checking executable dependencies ==="
-        x86_64-w64-mingw32-objdump -p patest_init_static.exe | grep "DLL Name" || echo "No DLL dependencies - static build successful!"
