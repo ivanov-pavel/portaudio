@@ -67,7 +67,6 @@ jobs:
           /p:Configuration=Release `
           /p:Platform=x64 `
           /p:RuntimeLibrary=MultiThreaded `
-          /p:OutDir=${{env.BUILD_OUTPUT_DIR}}\ `
           ${{env.VCXPROJ_FILE_PATH}}
 
     - name: Create ZIP of DLL and LIB
