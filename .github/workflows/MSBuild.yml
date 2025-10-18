@@ -82,7 +82,7 @@ jobs:
         Write-Output "ZIP created at $zipPath"
 
     - name: Upload ZIP Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: portaudio-x64-release
         path: portaudio-x64-release.zip
