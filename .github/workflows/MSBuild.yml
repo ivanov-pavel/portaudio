@@ -70,6 +70,7 @@ jobs:
           /p:OutDir=${{env.BUILD_OUTPUT_DIR}}\ `
           /p:TargetName=portaudio `
           /p:TargetExt=.dll `
+          /p:ImportLibrary=${{env.BUILD_OUTPUT_DIR}}\portaudio.lib `
           ${{env.VCXPROJ_FILE_PATH}}
 
     - name: Create ZIP of DLL
