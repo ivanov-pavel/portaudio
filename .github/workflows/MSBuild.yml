@@ -161,7 +161,7 @@ jobs:
       run: |
         # Copy the built library to dist directory
         New-Item -ItemType Directory -Path "dist\lib\x64" -Force
-        Copy-Item -Path "${{env:LIB_PATH}}" -Destination "dist\lib\x64\portaudio.lib" -Force
+        Copy-Item -Path "$env:LIB_PATH" -Destination "dist\lib\x64\portaudio.lib" -Force
         Write-Output "Library copied to dist/lib/x64/portaudio.lib"
 
     - name: Create Zip Package
@@ -183,4 +183,4 @@ jobs:
       run: |
         Write-Output "Package contents:"
         Get-ChildItem -Path "dist" -Recurse | ForEach-Object { Write-Output "  $($_.FullName)" }
-        Write-Output "Zip file: ${{env.ZIP_NAME}}"
+        Write-Output "Zip file: $env:ZIP_NAME"
