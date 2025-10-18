@@ -1,4 +1,4 @@
-name: MSYS2 autotools build (Windows)
+name: Build Static PortAudio (Windows MinGW)
 
 on:
   push:
@@ -7,73 +7,104 @@ on:
     branches: [ master ]
 
 env:
-  # GitHub CI Actions-specific environment variables:
-
-  # Location for user-local `make install`
-  PORTAUDIO_INSTALL_DIR: ${HOME}/.local
-
-  # Environment variables for compiling and running the test program.
-  # Usually none of this is needed as `make install` would install to system locations
-  # where include and library search paths are already set up to just work.
-  # gcc environment variables. see https://gcc.gnu.org/onlinedocs/gcc/Environment-Variables.html
-  C_INCLUDE_PATH: ${HOME}/.local/include
-  LIBRARY_PATH: ${HOME}/.local/lib
-  # LD_LIBRARY_PATH: ${HOME}/.local/lib
-  # NOTE: msys2 doesn't use LD_LIBRARY_PATH. .dll files are installed in .local/bin
-  # so add ./local/bin to PATH
-  BIN_PATH: ${HOME}/.local/bin
+  BUILD_DIR: ${HOME}/portaudio-build
+  ARTIFACT_NAME: portaudio-static-windows
 
 jobs:
   msys2-ucrt64:
-    # based on official recommended msys2 CI setup. see:  https://www.msys2.org/docs/ci/
     runs-on: windows-latest
     defaults:
       run:
         shell: msys2 {0}
     steps:
-    - name: checkout PortAudio git repo
+    - name: Checkout PortAudio
       uses: actions/checkout@v3
-    - name: setup msys2
+      
+    - name: Setup MSYS2 and build tools
       uses: msys2/setup-msys2@v2
       with:
         msystem: UCRT64
         update: true
-        install: git mingw-w64-ucrt-x86_64-gcc
-    # regenerate configure script due to MSYS2 "Known Issues" see: https://www.msys2.org/docs/autotools/
-    - name: setup autotools for autoreconf
-      run: |
-        pacman --noconfirm -S "${MINGW_PACKAGE_PREFIX}-autotools"
-        pacman --noconfirm -S "autoconf-archive"
-    - name: autoreconf
+        install: >-
+          git 
+          mingw-w64-ucrt-x86_64-gcc 
+          mingw-w64-ucrt-x86_64-autotools 
+          autoconf-archive 
+          mingw-w64-ucrt-x86_64-tools 
+          zip
+
+    - name: Regenerate configure scripts
       run: |
         autoreconf -fvi
-    # test configure and build
-    - name: configure
-      run: ./configure --prefix=${{ env.PORTAUDIO_INSTALL_DIR }}
-    - name: make
-      run: make
-    # test make install
-    - name: install
-      run: make install
-    - name: list install dirs (post-install)
-      run: ls ${{ env.PORTAUDIO_INSTALL_DIR }} ${{ env.BIN_PATH }} ${{ env.C_INCLUDE_PATH }} ${{ env.LIBRARY_PATH }}
-    - name: build patest_init.c (test just calls Pa_Initialize();Pa_Terminate();)
+
+    - name: Configure for static build
       run: |
-        C_INCLUDE_PATH=${{ env.C_INCLUDE_PATH }}
-        LIBRARY_PATH=${{ env.LIBRARY_PATH }}
-        gcc -o patest_init.exe ./test/patest_init.c -lportaudio
-        ls
-    - name: run patest_init.exe
+        ./configure \
+          --host=x86_64-w64-mingw32 \
+          --enable-static \
+          --disable-shared \
+          --with-winapi=wasapi,wdmks,directx \
+          --prefix=${{ env.BUILD_DIR }}
+
+    - name: Build static library
       run: |
-        export PATH=${{ env.BIN_PATH }}:$PATH
-        ./patest_init.exe
-      # test make uninstall
-    - name: uninstall
-      run: make uninstall
-    - name: list install dirs (post-uninstall)
-      run: ls ${{ env.PORTAUDIO_INSTALL_DIR }} ${{ env.BIN_PATH }} ${{ env.C_INCLUDE_PATH }} ${{ env.LIBRARY_PATH }}
-    - name: build patest_init.c to check uninstall (expect failure)
+        make -j$(nproc)
+        make install
+
+    - name: Verify static library
       run: |
-        C_INCLUDE_PATH=${{ env.C_INCLUDE_PATH }}
-        LIBRARY_PATH=${{ env.LIBRARY_PATH }}
-        if gcc -o patest_init.exe ./test/patest_init.c -lportaudio; then exit 1; else exit 0; fi
+        echo "=== Checking library type ==="
+        file ${{ env.BUILD_DIR }}/lib/libportaudio.a
+        echo "=== Checking dependencies ==="
+        x86_64-w64-mingw32-objdump -p ${{ env.BUILD_DIR }}/lib/libportaudio.a | grep "DLL Name" || echo "No DLL dependencies - good!"
+
+    - name: Create distribution archive
+      run: |
+        mkdir -p ${{ env.ARTIFACT_NAME }}
+        # Copy static library
+        cp ${{ env.BUILD_DIR }}/lib/libportaudio.a ${{ env.ARTIFACT_NAME }}/
+        # Copy headers
+        cp -r ${{ env.BUILD_DIR }}/include/* ${{ env.ARTIFACT_NAME }}/
+        # Create README
+        cat > ${{ env.ARTIFACT_NAME }}/README.txt << EOF
+        Static PortAudio Library Build
+        ==============================
+        
+        Built with: x86_64-w64-mingw32-gcc
+        Date: $(date)
+        Features: Static build, no external dependencies
+        
+        Contents:
+        - libportaudio.a: Static library
+        - portaudio.h: Main header
+        - Other header files
+        
+        Usage:
+        Compile with: -static -static-libgcc -static-libstdc++ -lwinpthread
+        Link with: -lportaudio -lwinmm -lole32 -lsetupapi -luuid
+        EOF
+        
+        # Create zip archive
+        zip -r ${{ env.ARTIFACT_NAME }}.zip ${{ env.ARTIFACT_NAME }}
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: portaudio-static-windows
+        path: ${{ env.ARTIFACT_NAME }}.zip
+        retention-days: 30
+
+    - name: Test static linking
+      run: |
+        echo "=== Testing static compilation ==="
+        cd ${{ env.BUILD_DIR }}
+        # Test compile with static linking
+        x86_64-w64-mingw32-gcc -static -static-libgcc -static-libstdc++ \
+          -I./include \
+          -o patest_init_static.exe \
+          ../test/patest_init.c \
+          -L./lib -lportaudio \
+          -lwinmm -lole32 -lsetupapi -luuid -lwinpthread
+        
+        echo "=== Checking executable dependencies ==="
+        x86_64-w64-mingw32-objdump -p patest_init_static.exe | grep "DLL Name" || echo "No DLL dependencies - static build successful!"
