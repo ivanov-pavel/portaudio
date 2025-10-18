@@ -68,17 +68,15 @@ jobs:
           /p:Platform=x64 `
           /p:RuntimeLibrary=MultiThreaded `
           /p:OutDir=${{env.BUILD_OUTPUT_DIR}}\ `
-          /p:TargetName=portaudio `
-          /p:TargetExt=.dll `
-          /p:ImportLibrary=${{env.BUILD_OUTPUT_DIR}}\portaudio.lib `
           ${{env.VCXPROJ_FILE_PATH}}
 
-    - name: Create ZIP of DLL
+    - name: Create ZIP of DLL and LIB
       run: |
         $dllPath = "${{env.BUILD_OUTPUT_DIR}}\portaudio.dll"
+        $libPath = "${{env.BUILD_OUTPUT_DIR}}\portaudio.lib"
         $zipPath = "${{github.workspace}}\portaudio-x64-release.zip"
         if (Test-Path $zipPath) { Remove-Item $zipPath }
-        Compress-Archive -Path $dllPath -DestinationPath $zipPath
+        Compress-Archive -Path $dllPath,$libPath -DestinationPath $zipPath
         Write-Output "ZIP created at $zipPath"
 
     - name: Upload ZIP Artifact
