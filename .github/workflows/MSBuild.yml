@@ -164,38 +164,6 @@ jobs:
         Copy-Item -Path "${{env:LIB_PATH}}" -Destination "dist\lib\x64\portaudio.lib" -Force
         Write-Output "Library copied to dist/lib/x64/portaudio.lib"
 
-    - name: Create Readme
-      run: |
-        $readmeContent = @"
-PortAudio Static Library Build
-==============================
-
-Platform: x64
-Configuration: Release
-Runtime: Static VC++ Runtime
-
-Contents:
-- include/ - PortAudio header files
-- lib/x64/portaudio.lib - Static library for x64
-
-Build Info:
-- Built with: Visual Studio 2022
-- Runtime: Static linkage (no VC++ redistributable required)
-- Date: $(Get-Date -Format "yyyy-MM-dd")
-- Repository: ${{ github.repository }}
-
-Usage:
-1. Add 'dist/include' to your include path
-2. Link against 'dist/lib/x64/portaudio.lib'
-3. No external DLL dependencies required
-
-Features:
-- DirectSound support enabled
-- ASIO support disabled (requires ASIO SDK)
-- Static VC++ runtime linkage
-"@
-        Set-Content -Path "dist\README.txt" -Value $readmeContent
-
     - name: Create Zip Package
       run: |
         $version = "x64-release-static"
